@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IndexedDB 3.0 Example</title>
+  <style>
+    body { font-family: sans-serif; max-width:600px; margin:2rem auto; }
+    label, input, button { display:block; width:100%; margin-bottom:0.5rem; }
+    .status { margin-top:1rem; color:green; }
+    .error  { color:red; }
+    /* Drawer styles */
+    .drawer {
+      position:fixed; top:0; left:-250px;
+      width:250px; height:100%; background:#333; color:#fff;
+      transition:left .3s; padding:1rem;
+    }
+    .drawer.open { left:0; }
+  </style>
+</head>
+<body>
+  <h1>Add Item to IndexedDB (v3)</h1>
+  <button id="toggleDrawer">Toggle Drawer</button>
+  
+  <div id="drawer" class="drawer" aria-hidden="true">
+    <form id="itemForm">
+      <label for="itemName">Item Name *</label>
+      <input type="text" id="itemName" name="name" required />
+
+      <label for="itemDesc">Description</label>
+      <input type="text" id="itemDesc" name="description" />
+
+      <button type="submit">Add Item</button>
+    </form>
+    <button id="closeDrawer">Close</button>
+  </div>
+
+  <ul id="feedback" class="status" aria-live="polite"></ul>
+
+  <script>
+    (function() {
+      'use strict';
+
+      // ————— Config & State —————
+      const DB_NAME    = 'MyAppDB';
+      const DB_VERSION = 3;
+      const STORE_NAME = 'items';
+      let db = null;
+
+      // ————— 1. Open or upgrade DB —————
+      async function openDatabase() {
+        if (db) return db;  // reuse if already opened
+
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
+          
+          req.onupgradeneeded = e => {
+            const database = e.target.result;
+            if (!database.objectStoreNames.contains(STORE_NAME)) {
+              database.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+            }
+          };
+
+          req.onsuccess = e => resolve(db = e.target.result);
+          req.onerror   = e => reject(new Error('DB open failed: ' + e.target.error));
+        });
+      }
+
+      // ————— 2. CRUD Helpers —————
+      async function addItem(item) {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        return new Promise((res, rej) => {
+          const r = store.add(item);
+          r.onsuccess = () => res(r.result);
+          r.onerror   = () => rej(r.error);
+        });
+      }
+
+      async function getAllItems() {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        return new Promise((res, rej) => {
+          const r = store.getAll();
+          r.onsuccess = () => res(r.result);
+          r.onerror   = () => rej(r.error);
+        });
+      }
+
+      // ————— 3. UI Feedback —————
+      const feedbackEl = document.getElementById('feedback');
+
+      function clearFeedback() {
+        feedbackEl.innerHTML = '';
+      }
+
+      function showItems(items) {
+        clearFeedback();
+        if (items.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = 'No items found.';
+          feedbackEl.appendChild(li);
+          return;
+        }
+        items.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = `🆔 ${item.id} • ${item.name} – ${item.description || '(no desc)'} @ ${new Date(item.created).toLocaleString()}`;
+          feedbackEl.appendChild(li);
+        });
+      }
+
+      function showError(msg) {
+        clearFeedback();
+        const li = document.createElement('li');
+        li.textContent = 'Error: ' + msg;
+        li.className = 'error';
+        feedbackEl.appendChild(li);
+      }
+
+      // ————— 4. Event Handlers —————
+      async function handleFormSubmit(evt) {
+        evt.preventDefault();
+        const form = evt.target;
+        const name = form.name.value.trim();
+        const desc = form.description.value.trim();
+
+        if (!name) {
+          showError('Item name is required.');
+          return;
+        }
+
+        try {
+          await addItem({ name, description: desc, created: Date.now() });
+          form.reset();
+          const items = await getAllItems();
+          showItems(items);
+        } catch (err) {
+          showError(err.message);
+          console.error(err);
+        }
+      }
+
+      function toggleDrawer() {
+        const d = document.getElementById('drawer');
+        const open = d.classList.toggle('open');
+        d.setAttribute('aria-hidden', !open);
+      }
+
+      function closeDrawer() {
+        const d = document.getElementById('drawer');
+        d.classList.remove('open');
+        d.setAttribute('aria-hidden', 'true');
+      }
+
+      // ————— 5. Initialize on DOMContentLoaded —————
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          await openDatabase();
+          // Load & display existing items “on load.”
+          const items = await getAllItems();
+          showItems(items);
+        } catch (err) {
+          showError(err.message);
+        }
+
+        // Wire up UI listeners
+        document.getElementById('itemForm').addEventListener('submit', handleFormSubmit);
+        document.getElementById('toggleDrawer').addEventListener('click', toggleDrawer);
+        document.getElementById('closeDrawer' ).addEventListener('click', closeDrawer);
+      });
+
+    })();
+  </script>
+</body>
+</html>
+

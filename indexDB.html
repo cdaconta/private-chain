@@ -4,173 +4,354 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>IndexedDB 3.0 Example</title>
+  <link href="./css/bootstrap.min.css" rel="stylesheet">
   <style>
-    body { font-family: sans-serif; max-width:600px; margin:2rem auto; }
-    label, input, button { display:block; width:100%; margin-bottom:0.5rem; }
-    .status { margin-top:1rem; color:green; }
-    .error  { color:red; }
-    /* Drawer styles */
-    .drawer {
-      position:fixed; top:0; left:-250px;
-      width:250px; height:100%; background:#333; color:#fff;
-      transition:left .3s; padding:1rem;
-    }
-    .drawer.open { left:0; }
+   .drawer {
+  position: fixed;
+  top: 0;
+  left: -300px;
+  width: 300px;
+  height: 100%;
+  overflow-y: auto; /* 👈 Enables scrolling */
+  background: #343a40;
+  color: white;
+  transition: left 0.3s;
+  padding: 1rem;
+  z-index: 1050;
+}
+
+    .drawer.open { left: 0; }
   </style>
 </head>
-<body>
-  <h1>Add Item to IndexedDB (v3)</h1>
-  <button id="toggleDrawer">Toggle Drawer</button>
-  
-  <div id="drawer" class="drawer" aria-hidden="true">
+<body class="bg-light text-dark">
+
+<div class="container mt-4">
+  <h1 class="mb-4">IndexedDB Item Manager</h1>
+  <button id="toggleDrawer" class="btn btn-primary mb-3">Toggle Form Drawer</button>
+
+  <div id="drawer" class="drawer shadow" aria-hidden="true">
     <form id="itemForm">
-      <label for="itemName">Item Name *</label>
-      <input type="text" id="itemName" name="name" required />
-
-      <label for="itemDesc">Description</label>
-      <input type="text" id="itemDesc" name="description" />
-
-      <button type="submit">Add Item</button>
+      <div class="mb-3">
+        <label for="itemName" class="form-label">Item Name *</label>
+        <input type="text" id="itemName" name="name" required class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label for="itemDesc" class="form-label">Description</label>
+        <input type="text" id="itemDesc" name="description" class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Image</label>
+        <input type="file" accept="image/*" name="image" class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Video</label>
+        <input type="file" accept="video/*" name="video" class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Audio</label>
+        <input type="file" accept="audio/*" name="audio" class="form-control" />
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Drawing</label><br>
+        <button type="button" id="openDrawingModal" class="btn btn-outline-primary">Open Drawing Pad</button>
+        <input type="hidden" name="drawing" id="drawingData" />
+      </div>
+      
+      
+      <button type="submit" class="btn btn-success">Add Item</button>
     </form>
-    <button id="closeDrawer">Close</button>
+    <button id="closeDrawer" class="btn btn-secondary mt-3">Close</button>
   </div>
 
-  <ul id="feedback" class="status" aria-live="polite"></ul>
+  <ul id="feedback" class="list-group mt-4" aria-live="polite"></ul>
+</div>
+<div class="modal fade" id="drawingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Draw Something</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <canvas id="drawingCanvas" width="600" height="300" class="border bg-white w-100"></canvas>
+        <div class="mt-3 d-flex justify-content-between">
+          <button id="clearCanvas" class="btn btn-secondary">Clear</button>
+          <button id="saveDrawing" class="btn btn-success" data-bs-dismiss="modal">Save Drawing</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-  <script>
-    (function() {
-      'use strict';
+<script>
+  (function () {
+    const DB_NAME = 'MyAppDB';
+    const DB_VERSION = 3;
+    const STORE_NAME = 'items';
+    let db = null;
 
-      // ————— Config & State —————
-      const DB_NAME    = 'MyAppDB';
-      const DB_VERSION = 3;
-      const STORE_NAME = 'items';
-      let db = null;
+    async function openDatabase() {
+      if (db) return db;
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = e => {
+          const database = e.target.result;
+          if (!database.objectStoreNames.contains(STORE_NAME)) {
+            database.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        req.onsuccess = e => resolve(db = e.target.result);
+        req.onerror = e => reject(new Error('DB open failed: ' + e.target.error));
+      });
+    }
 
-      // ————— 1. Open or upgrade DB —————
-      async function openDatabase() {
-        if (db) return db;  // reuse if already opened
+    async function addItem(item) {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      return new Promise((res, rej) => {
+        const r = store.add(item);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
 
-        return new Promise((resolve, reject) => {
-          const req = indexedDB.open(DB_NAME, DB_VERSION);
-          
-          req.onupgradeneeded = e => {
-            const database = e.target.result;
-            if (!database.objectStoreNames.contains(STORE_NAME)) {
-              database.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-            }
-          };
+    async function getAllItems() {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      return new Promise((res, rej) => {
+        const r = store.getAll();
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
 
-          req.onsuccess = e => resolve(db = e.target.result);
-          req.onerror   = e => reject(new Error('DB open failed: ' + e.target.error));
-        });
+    const feedbackEl = document.getElementById('feedback');
+
+    function clearFeedback() {
+      feedbackEl.innerHTML = '';
+    }
+
+    function showItems(items) {
+      clearFeedback();
+      if (items.length === 0) {
+        feedbackEl.innerHTML = '<li class="list-group-item">No items found.</li>';
+        return;
       }
-
-      // ————— 2. CRUD Helpers —————
-      async function addItem(item) {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        return new Promise((res, rej) => {
-          const r = store.add(item);
-          r.onsuccess = () => res(r.result);
-          r.onerror   = () => rej(r.error);
-        });
-      }
-
-      async function getAllItems() {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        return new Promise((res, rej) => {
-          const r = store.getAll();
-          r.onsuccess = () => res(r.result);
-          r.onerror   = () => rej(r.error);
-        });
-      }
-
-      // ————— 3. UI Feedback —————
-      const feedbackEl = document.getElementById('feedback');
-
-      function clearFeedback() {
-        feedbackEl.innerHTML = '';
-      }
-
-      function showItems(items) {
-        clearFeedback();
-        if (items.length === 0) {
-          const li = document.createElement('li');
-          li.textContent = 'No items found.';
-          feedbackEl.appendChild(li);
-          return;
-        }
-        items.forEach(item => {
-          const li = document.createElement('li');
-          li.textContent = `🆔 ${item.id} • ${item.name} – ${item.description || '(no desc)'} @ ${new Date(item.created).toLocaleString()}`;
-          feedbackEl.appendChild(li);
-        });
-      }
-
-      function showError(msg) {
-        clearFeedback();
+      items.forEach(item => {
         const li = document.createElement('li');
-        li.textContent = 'Error: ' + msg;
-        li.className = 'error';
+        li.className = 'list-group-item';
+        li.innerHTML = `<strong>${item.name}</strong> — ${item.description || '(no desc)'}<br>
+          <small>🆔 ${item.id} @ ${new Date(item.created).toLocaleString()}</small>`;
+
+        if (item.image) {
+          const img = document.createElement('img');
+          img.src = item.image;
+          img.alt = "Image";
+          img.className = "img-fluid mt-2";
+          li.appendChild(img);
+        }
+        if (item.video) {
+          const video = document.createElement('video');
+          video.src = item.video;
+          video.controls = true;
+          video.className = "w-100 mt-2";
+          li.appendChild(video);
+        }
+        if (item.audio) {
+          const audio = document.createElement('audio');
+          audio.src = item.audio;
+          audio.controls = true;
+          audio.className = "w-100 mt-2";
+          li.appendChild(audio);
+        }
+        if (item.drawing) {
+  const drawingImg = document.createElement('img');
+  drawingImg.src = item.drawing;
+  drawingImg.alt = "Drawing";
+  drawingImg.className = "img-fluid mt-2";
+  li.appendChild(drawingImg);
+}
+
         feedbackEl.appendChild(li);
-      }
+      });
+    }
 
-      // ————— 4. Event Handlers —————
-      async function handleFormSubmit(evt) {
-        evt.preventDefault();
-        const form = evt.target;
-        const name = form.name.value.trim();
-        const desc = form.description.value.trim();
+    function showError(msg) {
+      clearFeedback();
+      const li = document.createElement('li');
+      li.className = 'list-group-item text-danger';
+      li.textContent = 'Error: ' + msg;
+      feedbackEl.appendChild(li);
+    }
 
-        if (!name) {
-          showError('Item name is required.');
-          return;
-        }
+    async function handleFormSubmit(evt) {
+      evt.preventDefault();
+      const form = evt.target;
+      const name = form.name.value.trim();
+      const desc = form.description.value.trim();
+      if (!name) return showError('Item name is required.');
 
-        try {
-          await addItem({ name, description: desc, created: Date.now() });
-          form.reset();
-          const items = await getAllItems();
-          showItems(items);
-        } catch (err) {
-          showError(err.message);
-          console.error(err);
-        }
-      }
-
-      function toggleDrawer() {
-        const d = document.getElementById('drawer');
-        const open = d.classList.toggle('open');
-        d.setAttribute('aria-hidden', !open);
-      }
-
-      function closeDrawer() {
-        const d = document.getElementById('drawer');
-        d.classList.remove('open');
-        d.setAttribute('aria-hidden', 'true');
-      }
-
-      // ————— 5. Initialize on DOMContentLoaded —————
-      document.addEventListener('DOMContentLoaded', async () => {
-        try {
-          await openDatabase();
-          // Load & display existing items “on load.”
-          const items = await getAllItems();
-          showItems(items);
-        } catch (err) {
-          showError(err.message);
-        }
-
-        // Wire up UI listeners
-        document.getElementById('itemForm').addEventListener('submit', handleFormSubmit);
-        document.getElementById('toggleDrawer').addEventListener('click', toggleDrawer);
-        document.getElementById('closeDrawer' ).addEventListener('click', closeDrawer);
+      const readFile = input => new Promise(resolve => {
+        const file = input.files[0];
+        if (!file) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(file);
       });
 
-    })();
-  </script>
+      const image = await readFile(form.image);
+      const video = await readFile(form.video);
+      const audio = await readFile(form.audio);
+      const drawing = form.drawing.value || null;
+
+
+
+      try {
+        await addItem({ name, description: desc, created: Date.now(), image, video, audio, drawing });
+        form.reset();
+        showItems(await getAllItems());
+      } catch (err) {
+        showError(err.message);
+        console.error(err);
+      }
+    }
+
+    function toggleDrawer() {
+      const d = document.getElementById('drawer');
+      const open = d.classList.toggle('open');
+      d.setAttribute('aria-hidden', !open);
+    }
+
+    function closeDrawer() {
+      const d = document.getElementById('drawer');
+      d.classList.remove('open');
+      d.setAttribute('aria-hidden', 'true');
+    }
+// Drawing canvas logic
+function setupCanvas(canvasId, clearBtnId) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  let drawing = false;
+
+  const start = e => {
+    drawing = true;
+    ctx.beginPath();
+    const rect = drawingCanvas.getBoundingClientRect();
+ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+
+  };
+
+  const draw = e => {
+    if (!drawing) return;
+    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+
+    ctx.stroke();
+  };
+
+  const end = () => {
+    drawing = false;
+    ctx.closePath();
+  };
+
+  // Mouse events
+  canvas.addEventListener("mousedown", start);
+  canvas.addEventListener("mousemove", draw);
+  canvas.addEventListener("mouseup", end);
+  canvas.addEventListener("mouseout", end);
+
+  // Touch events (for stylus support)
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    ctx.beginPath();
+    ctx.moveTo(touch.clientX - rect.left, touch.clientY - rect.top);
+    drawing = true;
+  });
+
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if (!drawing) return;
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    ctx.lineTo(touch.clientX - rect.left, touch.clientY - rect.top);
+    ctx.stroke();
+  });
+
+  canvas.addEventListener("touchend", e => {
+    e.preventDefault();
+    drawing = false;
+  });
+
+  // Clear button
+  document.getElementById(clearBtnId).addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  });
+
+  return canvas;
+}
+let drawingCanvas, ctx;
+
+function setupDrawingModal() {
+  drawingCanvas = document.getElementById('drawingCanvas');
+  ctx = drawingCanvas.getContext("2d");
+  ctx.lineWidth = 2;
+
+  let drawing = false;
+
+  const startDraw = e => {
+    drawing = true;
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+  };
+
+  const draw = e => {
+    if (!drawing) return;
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+  };
+
+  const endDraw = () => {
+    drawing = false;
+    ctx.closePath();
+  };
+
+  drawingCanvas.addEventListener("mousedown", startDraw);
+  drawingCanvas.addEventListener("mousemove", draw);
+  drawingCanvas.addEventListener("mouseup", endDraw);
+  drawingCanvas.addEventListener("mouseout", endDraw);
+
+  document.getElementById('clearCanvas').addEventListener('click', () => {
+    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  });
+
+  document.getElementById('saveDrawing').addEventListener('click', () => {
+    const data = drawingCanvas.toDataURL();
+    document.getElementById('drawingData').value = data;
+  });
+}
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        await openDatabase();
+        showItems(await getAllItems());
+      } catch (err) {
+        showError(err.message);
+      }
+
+      document.getElementById('itemForm').addEventListener('submit', handleFormSubmit);
+      document.getElementById('toggleDrawer').addEventListener('click', toggleDrawer);
+      document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+      setupDrawingModal();
+document.getElementById('openDrawingModal').addEventListener('click', () => {
+  const modal = new bootstrap.Modal(document.getElementById('drawingModal'));
+  modal.show();
+});
+
+    });
+  })();
+</script>
+<script src="./js/bootstrap.bundle.min.js"></script>
+
 </body>
 </html>
-

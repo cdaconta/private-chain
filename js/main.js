@@ -98,12 +98,79 @@
       feedbackEl.appendChild(li);
     }
 
+    //----------------------------------------------------------------Quill-------------------------------
+    const quill = new Quill('#editor', {
+  theme: 'snow',
+  modules: {
+    toolbar: {
+      container: [
+        [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+        [{ 'font': [] }],
+        [{ 'size': ['small', false, 'large', 'huge'] }],
+
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'script': 'sub' }, { 'script': 'super' }],
+
+        [{ 'header': '1' }, { 'header': '2' }, 'blockquote', 'code-block'],
+        [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+        [{ 'direction': 'rtl' }],
+
+        ['link', 'image', 'video', 'formula'],
+
+        ['clean']
+      ],
+      handlers: {
+  image: function () {
+    const imageName = prompt('Enter the image file name (e.g., example.jpg):');
+    if (imageName) {
+      const imagePath = `../static/img/${imageName}`; // Adjust this to match your hosted folder
+
+      // Prompt for additional attributes
+      const imageAlt = prompt('Enter the alt text for the image:') || '';
+      const imageWidth = prompt('Enter the width of the image (e.g., 300px):') || 'auto';
+      const imageHeight = prompt('Enter the height of the image (e.g., 200px):') || 'auto';
+
+      // Insert the image using Quill's insertEmbed
+      const range = this.quill.getSelection();
+      this.quill.insertEmbed(range.index, 'image', imagePath);
+
+      // Add attributes to the inserted image
+      const imgElement = this.quill.container.querySelector(`img[src="${imagePath}"]`);
+      if (imgElement) {
+        imgElement.setAttribute('alt', imageAlt);
+        imgElement.setAttribute('width', imageWidth);
+        imgElement.setAttribute('height', imageHeight);
+      }
+    }
+  }
+}
+    }
+  }
+});
+//-------------------------------------------------------------------------------------------------------
+
     async function handleFormSubmit(evt) {
       evt.preventDefault();
       const form = evt.target;
       const name = form.name.value.trim();
       const desc = form.description.value.trim();
       if (!name) return showError('Item name is required.');
+
+      // Validate that the editor has content
+const editorText = quill.getText().trim();
+    if (editorText.length === 0) {
+      alert("Please enter some content in the editor.");
+      return;
+    }
+
+// Get the content in Delta format
+const deltaContent = quill.getContents();
+
+// Convert to HTML if needed
+const htmlContent = quill.root.innerHTML;
+document.querySelector('#editor_content').value = htmlContent; // Set it to hidden input
+
 
       const readFile = input => new Promise(resolve => {
         const file = input.files[0];
@@ -121,8 +188,9 @@
 
 
       try {
-        await addItem({ name, description: desc, created: Date.now(), image, video, audio, drawing });
+        await addItem({ name, description: desc, created: Date.now(), image, video, audio, drawing, deltaContent, htmlContent });
         form.reset();
+        quill.setContents([]); // Clears the editor
         showItems(await getAllItems());
       } catch (err) {
         showError(err.message);

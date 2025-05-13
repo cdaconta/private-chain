@@ -33,12 +33,16 @@
   <div id="drawer" class="drawer shadow" aria-hidden="true">
     <form id="itemForm">
       <div class="mb-3">
-        <label for="itemName" class="form-label">Item Name *</label>
+        <label for="itemName" class="form-label">Title</label>
         <input type="text" id="itemName" name="name" required class="form-control" />
       </div>
       <div class="mb-3">
         <label for="itemDesc" class="form-label">Description</label>
         <input type="text" id="itemDesc" name="description" class="form-control" />
+      </div>
+      <div class="mb-3">
+      <div id="editor" class="form-control"></div>
+      <input type="hidden" id="editor_content" name="editor_content">
       </div>
       <div class="mb-3">
         <label class="form-label">Image</label>
